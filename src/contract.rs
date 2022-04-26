@@ -53,7 +53,7 @@ use secret_toolkit::snip20::handle::{register_receive_msg,transfer_msg};
 
 
 /// Mint cost
-pub const MINT_COST: u128 = 10000000; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
+pub const MINT_COST: u128 = 0; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
 
 
 ////////////////////////////////////// Init ///////////////////////////////////////
@@ -818,7 +818,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
 
 
     //Set variables for response logs
-    let url_str = format!("{} ",token_data.priv_img_url.clone());
+    let data_str = format!("{}", to_binary(&token_data)?.to_string());
 
 
 
@@ -838,7 +838,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
         messages: msg_list,
         log: vec![
             log("minted", &minted_str),
-            log("priv_url", &url_str),
+            log("data", &data_str),
         ],
         data: Some(to_binary(&HandleAnswer::MintNft {
             token_id: minted_str,
