@@ -760,12 +760,12 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
     let public_metadata = Some(Metadata {
         token_uri: None,
         extension: Some(Extension {
-            image: None,
+            image: Some(token_data.img_url),
             image_data: None,
             external_url: None,
             description: None,
-            name: None,
-            attributes: None,
+            name: Some(token_data.id.clone()),
+            attributes: token_data.pub_attributes,
             background_color: None,
             animation_url: None,
             youtube_url: None,
@@ -781,8 +781,8 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
             image_data: None,
             external_url: None,
             description: None,
-            name: None,
-            attributes: None,
+            name:  Some(token_data.id.clone()),
+            attributes: token_data.priv_attributes,
             background_color: None,
             animation_url: None,
             youtube_url: None,
@@ -790,9 +790,9 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
                 MediaFile {
                     file_type: Some("image".to_string()),
                     extension: Some("png".to_string()),
-                    url: String::from("INSERT_ENCRYPTED_LINK_HERE"),
+                    url: token_data.priv_img_url,
                     authentication: Some(Authentication {
-                        key: None,
+                        key: Some(token_data.priv_key),
                         user: None,
                     })
                 }
