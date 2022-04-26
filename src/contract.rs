@@ -697,12 +697,12 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
     let public_metadata = Some(Metadata {
         token_uri: None,
         extension: Some(Extension {
-            image: Some(token_data.img_url),
+            image: Some(token_data.img_url.clone()),
             image_data: None,
             external_url: None,
             description: None,
             name: Some(token_data.id.clone()),
-            attributes: token_data.pub_attributes,
+            attributes: token_data.pub_attributes.clone(),
             background_color: None,
             animation_url: None,
             youtube_url: None,
@@ -719,7 +719,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
             external_url: None,
             description: None,
             name:  Some(token_data.id.clone()),
-            attributes: token_data.priv_attributes,
+            attributes: token_data.priv_attributes.clone(),
             background_color: None,
             animation_url: None,
             youtube_url: None,
@@ -727,9 +727,9 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
                 MediaFile {
                     file_type: Some("image".to_string()),
                     extension: Some("png".to_string()),
-                    url: token_data.priv_img_url,
+                    url: token_data.priv_img_url.clone(),
                     authentication: Some(Authentication {
-                        key: Some(token_data.priv_key),
+                        key: Some(token_data.priv_key.clone()),
                         user: None,
                     })
                 }
