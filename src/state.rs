@@ -471,7 +471,7 @@ pub struct PreLoad {
     pub id: String,
     pub img_url: String,
     pub priv_img_url: String,
-    pub attributes: Option<Vec<Trait>>,
+    pub pub_attributes: Option<Vec<Trait>>,
     pub priv_attributes: Option<Vec<Trait>>,
     pub priv_key: String,
 }
