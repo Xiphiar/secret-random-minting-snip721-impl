@@ -18,9 +18,10 @@ use crate::expiration::Expiration;
 use crate::inventory::{Inventory, InventoryIter};
 use crate::mint_run::StoredMintRunInfo;
 use crate::msg::{
-    AccessLevel, Burn, ContractStatus, Cw721Approval, Cw721OwnerOfResponse, HandleAnswer,
-    HandleMsg, HandleReceiveMsg, InitMsg, Mint, QueryAnswer, QueryMsg, QueryWithPermit,
-    ReceiverInfo, ResponseStatus::Success, Send, Snip721Approval, Transfer, ViewerInfo,
+    AccessLevel, BatchNftDossierElement, Burn, ContractStatus, Cw721Approval, Cw721OwnerOfResponse,
+    HandleAnswer, HandleMsg, HandleReceiveMsg, InitMsg, Mint, QueryAnswer, QueryMsg,
+    QueryWithPermit, ReceiverInfo, ResponseStatus::Success, Send, Snip721Approval, Transfer,
+    ViewerInfo,
 };
 use crate::rand::{sha_256, Prng};
 use crate::receiver::{batch_receive_nft_msg, receive_nft_msg};
@@ -1885,7 +1886,12 @@ pub fn query<S: Storage, A: Api, Q: Querier>(deps: &Extern<S, A, Q>, msg: QueryM
             token_id,
             viewer,
             include_expired,
-        } => query_nft_dossier(deps, &token_id, viewer, include_expired, None),
+        } => query_nft_dossier(deps, token_id, viewer, include_expired, None),
+        QueryMsg::BatchNftDossier {
+            token_ids,
+            viewer,
+            include_expired,
+        } => query_batch_nft_dossier(deps, token_ids, viewer, include_expired, None),
         QueryMsg::TokenApprovals {
             token_id,
             viewing_key,
@@ -1985,7 +1991,11 @@ pub fn permit_queries<S: Storage, A: Api, Q: Querier>(
         QueryWithPermit::NftDossier {
             token_id,
             include_expired,
-        } => query_nft_dossier(deps, &token_id, None, include_expired, Some(querier)),
+        } => query_nft_dossier(deps, token_id, None, include_expired, Some(querier)),
+        QueryWithPermit::BatchNftDossier {
+            token_ids,
+            include_expired,
+        } => query_batch_nft_dossier(deps, token_ids, None, include_expired, Some(querier)),
         QueryWithPermit::OwnerOf {
             token_id,
             include_expired,
@@ -2368,160 +2378,61 @@ pub fn query_all_nft_info<S: Storage, A: Api, Q: Querier>(
 /// # Arguments
 ///
 /// * `deps` - a reference to Extern containing all the contract's external dependencies
-/// * `token_id` - string slice of the token id
+/// * `token_id` - the token id
 /// * `viewer` - optional address and key making an authenticated query request
 /// * `include_expired` - optionally true if the Approval lists should include expired Approvals
 /// * `from_permit` - address derived from an Owner permit, if applicable
 pub fn query_nft_dossier<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>,
-    token_id: &str,
+    token_id: String,
     viewer: Option<ViewerInfo>,
     include_expired: Option<bool>,
     from_permit: Option<CanonicalAddr>,
 ) -> QueryResult {
-    let mut prep_info = query_token_prep(deps, token_id, viewer, from_permit)?;
-    let incl_exp = include_expired.unwrap_or(false);
-    let owner_slice = prep_info.token.owner.as_slice();
-    let opt_viewer = prep_info.viewer_raw.as_ref();
-    let own_priv_store = ReadonlyPrefixedStorage::new(PREFIX_OWNER_PRIV, &deps.storage);
-    let global_pass: bool =
-        may_load(&own_priv_store, owner_slice)?.unwrap_or(prep_info.owner_is_public);
-    let perm_type_info = PermissionTypeInfo {
-        view_owner_idx: PermissionType::ViewOwner.to_usize(),
-        view_meta_idx: PermissionType::ViewMetadata.to_usize(),
-        transfer_idx: PermissionType::Transfer.to_usize(),
-        num_types: PermissionType::Transfer.num_types(),
-    };
-    // get the owner if permitted
-    let owner = if global_pass
-        || check_perm_core(
-            deps,
-            &prep_info.block,
-            &prep_info.token,
-            token_id,
-            opt_viewer,
-            owner_slice,
-            perm_type_info.view_owner_idx,
-            &mut Vec::new(),
-            &prep_info.err_msg,
-        )
-        .is_ok()
-    {
-        Some(deps.api.human_address(&prep_info.token.owner)?)
-    } else {
-        None
-    };
-    // get the public metadata
-    let token_key = prep_info.idx.to_le_bytes();
-    let pub_store = ReadonlyPrefixedStorage::new(PREFIX_PUB_META, &deps.storage);
-    let public_metadata: Option<Metadata> = may_load(&pub_store, &token_key)?;
-    // get the private metadata if it is not sealed and if the viewer is permitted
-    let mut display_private_metadata_error = None;
-    let private_metadata = if let Err(err) = check_perm_core(
-        deps,
-        &prep_info.block,
-        &prep_info.token,
-        token_id,
-        opt_viewer,
-        owner_slice,
-        perm_type_info.view_meta_idx,
-        &mut Vec::new(),
-        &prep_info.err_msg,
-    ) {
-        if let StdError::GenericErr { msg, .. } = err {
-            display_private_metadata_error = Some(msg);
-        }
-        None
-    } else if !prep_info.token.unwrapped {
-        display_private_metadata_error = Some(
-            "Sealed metadata must be unwrapped by calling Reveal before it can be viewed"
-                .to_string(),
-        );
-        None
-    } else {
-        let priv_store = ReadonlyPrefixedStorage::new(PREFIX_PRIV_META, &deps.storage);
-        let priv_meta: Option<Metadata> = may_load(&priv_store, &token_key)?;
-        priv_meta
-    };
-    // get the royalty information if present
-    let roy_store = ReadonlyPrefixedStorage::new(PREFIX_ROYALTY_INFO, &deps.storage);
-    let may_roy_inf: Option<StoredRoyaltyInfo> = may_load(&roy_store, &token_key)?;
-    let royalty_info = may_roy_inf
-        .map(|r| {
-            let hide_addr = check_perm_core(
-                deps,
-                &prep_info.block,
-                &prep_info.token,
-                token_id,
-                opt_viewer,
-                owner_slice,
-                perm_type_info.transfer_idx,
-                &mut Vec::new(),
-                &prep_info.err_msg,
-            )
-            .is_err();
-            r.to_human(&deps.api, hide_addr)
-        })
-        .transpose()?;
-    // get the mint run information
-    let creator_raw: CanonicalAddr = load(&deps.storage, CREATOR_KEY)?;
-    let run_store = ReadonlyPrefixedStorage::new(PREFIX_MINT_RUN, &deps.storage);
-    let mint_run: StoredMintRunInfo = load(&run_store, &token_key)?;
-    // get the approvals
-    let (token_approv, token_owner_exp, token_meta_exp) = gen_snip721_approvals(
-        &deps.api,
-        &prep_info.block,
-        &mut prep_info.token.permissions,
-        incl_exp,
-        &perm_type_info,
-    )?;
-    let all_store = ReadonlyPrefixedStorage::new(PREFIX_ALL_PERMISSIONS, &deps.storage);
-    let mut all_perm: Vec<Permission> =
-        json_may_load(&all_store, owner_slice)?.unwrap_or_else(Vec::new);
-    let (inventory_approv, all_owner_exp, all_meta_exp) = gen_snip721_approvals(
-        &deps.api,
-        &prep_info.block,
-        &mut all_perm,
-        incl_exp,
-        &perm_type_info,
-    )?;
-    // determine if ownership is public
-    let (public_ownership_expiration, owner_is_public) = if global_pass {
-        (Some(Expiration::Never), true)
-    } else if token_owner_exp.is_some() {
-        (token_owner_exp, true)
-    } else {
-        (all_owner_exp, all_owner_exp.is_some())
-    };
-    // determine if private metadata is public
-    let (private_metadata_is_public_expiration, private_metadata_is_public) =
-        if token_meta_exp.is_some() {
-            (token_meta_exp, true)
-        } else {
-            (all_meta_exp, all_meta_exp.is_some())
-        };
-    // if the viewer is the owner, display the approvals
-    let (token_approvals, inventory_approvals) = opt_viewer.map_or((None, None), |v| {
-        if prep_info.token.owner == *v {
-            (Some(token_approv), Some(inventory_approv))
-        } else {
-            (None, None)
-        }
-    });
+    let dossier = dossier_list(deps, vec![token_id], viewer, include_expired, from_permit)?
+        .pop()
+        .ok_or_else(|| {
+            StdError::generic_err("NftDossier can never return an empty dossier list")
+        })?;
+
     to_binary(&QueryAnswer::NftDossier {
-        owner,
-        public_metadata,
-        private_metadata,
-        royalty_info,
-        mint_run_info: Some(mint_run.to_human(&deps.api, &creator_raw)?),
-        display_private_metadata_error,
-        owner_is_public,
-        public_ownership_expiration,
-        private_metadata_is_public,
-        private_metadata_is_public_expiration,
-        token_approvals,
-        inventory_approvals,
+        owner: dossier.owner,
+        public_metadata: dossier.public_metadata,
+        private_metadata: dossier.private_metadata,
+        royalty_info: dossier.royalty_info,
+        mint_run_info: dossier.mint_run_info,
+        unwrapped: dossier.unwrapped,
+        display_private_metadata_error: dossier.display_private_metadata_error,
+        owner_is_public: dossier.owner_is_public,
+        public_ownership_expiration: dossier.public_ownership_expiration,
+        private_metadata_is_public: dossier.private_metadata_is_public,
+        private_metadata_is_public_expiration: dossier.private_metadata_is_public_expiration,
+        token_approvals: dossier.token_approvals,
+        inventory_approvals: dossier.inventory_approvals,
     })
+}
+
+/// Returns QueryResult displaying all the token information the querier is permitted to
+/// view of multiple tokens.  This may include the owner, the public metadata, the private metadata,
+/// royalty information, mint run information, whether the token is unwrapped, and the token and inventory approvals
+///
+/// # Arguments
+///
+/// * `deps` - a reference to Extern containing all the contract's external dependencies
+/// * `token_ids` - list of token ids whose info should be retrieved
+/// * `viewer` - optional address and key making an authenticated query request
+/// * `include_expired` - optionally true if the Approval lists should include expired Approvals
+/// * `from_permit` - address derived from an Owner permit, if applicable
+pub fn query_batch_nft_dossier<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    token_ids: Vec<String>,
+    viewer: Option<ViewerInfo>,
+    include_expired: Option<bool>,
+    from_permit: Option<CanonicalAddr>,
+) -> QueryResult {
+    let nft_dossiers = dossier_list(deps, token_ids, viewer, include_expired, from_permit)?;
+
+    to_binary(&QueryAnswer::BatchNftDossier { nft_dossiers })
 }
 
 /// Returns QueryResult displaying the approvals in place for a specified token
@@ -4790,4 +4701,235 @@ fn get_querier<S: Storage, A: Api, Q: Querier>(
         })
         .transpose()?;
     Ok(viewer_raw)
+}
+
+// used to cache owner information for dossier_list()
+pub struct OwnerInfo {
+    // the owner's address
+    pub owner: CanonicalAddr,
+    // the view_owner privacy override
+    pub owner_is_public: bool,
+    // inventory approvals
+    pub inventory_approvals: Vec<Snip721Approval>,
+    // expiration for global view_owner approval if applicable
+    pub view_owner_exp: Option<Expiration>,
+    // expiration for global view_private_metadata approval if applicable
+    pub view_meta_exp: Option<Expiration>,
+}
+
+/// Returns StdResult<Vec<BatchNftDossierElement>> of all the token information the querier is permitted to
+/// view for multiple tokens.  This may include the owner, the public metadata, the private metadata, royalty
+/// information, mint run information, whether the token is unwrapped, and the token and inventory approvals
+///
+/// # Arguments
+///
+/// * `deps` - a reference to Extern containing all the contract's external dependencies
+/// * `token_ids` - list of token ids to retrieve the info of
+/// * `viewer` - optional address and key making an authenticated query request
+/// * `include_expired` - optionally true if the Approval lists should include expired Approvals
+/// * `from_permit` - address derived from an Owner permit, if applicable
+pub fn dossier_list<S: Storage, A: Api, Q: Querier>(
+    deps: &Extern<S, A, Q>,
+    token_ids: Vec<String>,
+    viewer: Option<ViewerInfo>,
+    include_expired: Option<bool>,
+    from_permit: Option<CanonicalAddr>,
+) -> StdResult<Vec<BatchNftDossierElement>> {
+    let viewer_raw = get_querier(deps, viewer, from_permit)?;
+    let opt_viewer = viewer_raw.as_ref();
+    let incl_exp = include_expired.unwrap_or(false);
+    let config: Config = load(&deps.storage, CONFIG_KEY)?;
+    let contract_creator = deps
+        .api
+        .human_address(&load::<CanonicalAddr, _>(&deps.storage, CREATOR_KEY)?)?;
+
+    // TODO remove this when BlockInfo becomes available to queries
+    let block: BlockInfo = may_load(&deps.storage, BLOCK_KEY)?.unwrap_or_else(|| BlockInfo {
+        height: 1,
+        time: 1,
+        chain_id: "not used".to_string(),
+    });
+    let perm_type_info = PermissionTypeInfo {
+        view_owner_idx: PermissionType::ViewOwner.to_usize(),
+        view_meta_idx: PermissionType::ViewMetadata.to_usize(),
+        transfer_idx: PermissionType::Transfer.to_usize(),
+        num_types: PermissionType::Transfer.num_types(),
+    };
+    // used to shortcut permission checks if the viewer is already a known operator for a list of owners
+    let mut owner_oper_for: Vec<CanonicalAddr> = Vec::new();
+    let mut meta_oper_for: Vec<CanonicalAddr> = Vec::new();
+    let mut xfer_oper_for: Vec<CanonicalAddr> = Vec::new();
+    let mut owner_cache: Vec<OwnerInfo> = Vec::new();
+    let mut dossiers: Vec<BatchNftDossierElement> = Vec::new();
+    // set up all the immutable storage references
+    let own_priv_store = ReadonlyPrefixedStorage::new(PREFIX_OWNER_PRIV, &deps.storage);
+    let pub_store = ReadonlyPrefixedStorage::new(PREFIX_PUB_META, &deps.storage);
+    let priv_store = ReadonlyPrefixedStorage::new(PREFIX_PRIV_META, &deps.storage);
+    let roy_store = ReadonlyPrefixedStorage::new(PREFIX_ROYALTY_INFO, &deps.storage);
+    let run_store = ReadonlyPrefixedStorage::new(PREFIX_MINT_RUN, &deps.storage);
+    let all_store = ReadonlyPrefixedStorage::new(PREFIX_ALL_PERMISSIONS, &deps.storage);
+
+    for id in token_ids.into_iter() {
+        let err_msg = format!(
+            "You are not authorized to perform this action on token {}",
+            &id
+        );
+        // if token supply is private, don't leak that the token id does not exist
+        // instead just say they are not authorized for that token
+        let opt_err = if config.token_supply_is_public {
+            None
+        } else {
+            Some(&*err_msg)
+        };
+        let (mut token, idx) = get_token(&deps.storage, &id, opt_err)?;
+        let owner_slice = token.owner.as_slice();
+        // get the owner info either from the cache or storage
+        let owner_inf = if let Some(inf) = owner_cache.iter().find(|o| o.owner == token.owner) {
+            inf
+        } else {
+            let owner_is_public: bool =
+                may_load(&own_priv_store, owner_slice)?.unwrap_or(config.owner_is_public);
+            let mut all_perm: Vec<Permission> =
+                json_may_load(&all_store, owner_slice)?.unwrap_or_else(Vec::new);
+            let (inventory_approvals, view_owner_exp, view_meta_exp) =
+                gen_snip721_approvals(&deps.api, &block, &mut all_perm, incl_exp, &perm_type_info)?;
+            owner_cache.push(OwnerInfo {
+                owner: token.owner.clone(),
+                owner_is_public,
+                inventory_approvals,
+                view_owner_exp,
+                view_meta_exp,
+            });
+            owner_cache.last().ok_or_else(|| {
+                StdError::generic_err("This can't happen since we just pushed an OwnerInfo!")
+            })?
+        };
+        let global_pass = owner_inf.owner_is_public;
+        // get the owner if permitted
+        let owner = if global_pass
+            || check_perm_core(
+                deps,
+                &block,
+                &token,
+                &id,
+                opt_viewer,
+                owner_slice,
+                perm_type_info.view_owner_idx,
+                &mut owner_oper_for,
+                &err_msg,
+            )
+            .is_ok()
+        {
+            Some(deps.api.human_address(&token.owner)?)
+        } else {
+            None
+        };
+        // get the public metadata
+        let token_key = idx.to_le_bytes();
+        let public_metadata: Option<Metadata> = may_load(&pub_store, &token_key)?;
+        // get the private metadata if it is not sealed and if the viewer is permitted
+        let mut display_private_metadata_error = None;
+        let private_metadata = if let Err(err) = check_perm_core(
+            deps,
+            &block,
+            &token,
+            &id,
+            opt_viewer,
+            owner_slice,
+            perm_type_info.view_meta_idx,
+            &mut meta_oper_for,
+            &err_msg,
+        ) {
+            if let StdError::GenericErr { msg, .. } = err {
+                display_private_metadata_error = Some(msg);
+            }
+            None
+        } else if !token.unwrapped {
+            display_private_metadata_error = Some(format!(
+                "Sealed metadata of token {} must be unwrapped by calling Reveal before it can be viewed", &id
+            ));
+            None
+        } else {
+            let priv_meta: Option<Metadata> = may_load(&priv_store, &token_key)?;
+            priv_meta
+        };
+        // get the royalty information if present
+        let may_roy_inf: Option<StoredRoyaltyInfo> = may_load(&roy_store, &token_key)?;
+        let royalty_info = may_roy_inf
+            .map(|r| {
+                let hide_addr = check_perm_core(
+                    deps,
+                    &block,
+                    &token,
+                    &id,
+                    opt_viewer,
+                    owner_slice,
+                    perm_type_info.transfer_idx,
+                    &mut xfer_oper_for,
+                    &err_msg,
+                )
+                .is_err();
+                r.to_human(&deps.api, hide_addr)
+            })
+            .transpose()?;
+        // get the mint run information
+        let mint_run: StoredMintRunInfo = load(&run_store, &token_key)?;
+        // get the token approvals
+        let (token_approv, token_owner_exp, token_meta_exp) = gen_snip721_approvals(
+            &deps.api,
+            &block,
+            &mut token.permissions,
+            incl_exp,
+            &perm_type_info,
+        )?;
+        // determine if ownership is public
+        let (public_ownership_expiration, owner_is_public) = if global_pass {
+            (Some(Expiration::Never), true)
+        } else if token_owner_exp.is_some() {
+            (token_owner_exp, true)
+        } else {
+            (
+                owner_inf.view_owner_exp.as_ref().cloned(),
+                owner_inf.view_owner_exp.is_some(),
+            )
+        };
+        // determine if private metadata is public
+        let (private_metadata_is_public_expiration, private_metadata_is_public) =
+            if token_meta_exp.is_some() {
+                (token_meta_exp, true)
+            } else {
+                (
+                    owner_inf.view_meta_exp.as_ref().cloned(),
+                    owner_inf.view_meta_exp.is_some(),
+                )
+            };
+        // if the viewer is the owner, display the approvals
+        let (token_approvals, inventory_approvals) = opt_viewer.map_or((None, None), |v| {
+            if token.owner == *v {
+                (
+                    Some(token_approv),
+                    Some(owner_inf.inventory_approvals.clone()),
+                )
+            } else {
+                (None, None)
+            }
+        });
+        dossiers.push(BatchNftDossierElement {
+            token_id: id,
+            owner,
+            public_metadata,
+            private_metadata,
+            royalty_info,
+            mint_run_info: Some(mint_run.to_human(&deps.api, contract_creator.clone())?),
+            unwrapped: token.unwrapped,
+            display_private_metadata_error,
+            owner_is_public,
+            public_ownership_expiration,
+            private_metadata_is_public,
+            private_metadata_is_public_expiration,
+            token_approvals,
+            inventory_approvals,
+        });
+    }
+    Ok(dossiers)
 }
