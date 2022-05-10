@@ -10,7 +10,7 @@ use crate::mint_run::{MintRunInfo, SerialNumber};
 use crate::royalties::{DisplayRoyaltyInfo, RoyaltyInfo};
 use crate::token::{Extension, Metadata};
 
-use crate::state::{PreLoad};
+use crate::state::PreLoad;
 
 /// Instantiation message
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -40,7 +40,7 @@ pub struct InitMsg {
     pub snip20_address: HumanAddr,
 
     /// The list of addreses to divide up on initial mint
-    pub mint_funds_distribution_info: Option<RoyaltyInfo>
+    pub mint_funds_distribution_info: Option<RoyaltyInfo>,
 }
 
 /// This type represents optional configuration values.
@@ -109,11 +109,10 @@ pub struct PostInitCallback {
     pub send: Vec<Coin>,
 }
 
-
 #[derive(Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandleReceiveMsg {
-    ReceiveMint { },
+    ReceiveMint {},
 }
 
 #[derive(Serialize, Deserialize, JsonSchema)]
@@ -128,17 +127,11 @@ pub enum HandleMsg {
         msg: Option<Binary>,
     },
     /// Preloads metadata for random mints
-    PreLoad {
-        new_data: Vec<PreLoad>
-    },
+    PreLoad { new_data: Vec<PreLoad> },
     /// Preloads whitelist data
-    LoadWhitelist {
-        whitelist: Vec<HumanAddr>
-    },
+    LoadWhitelist { whitelist: Vec<HumanAddr> },
     /// Deactivates whitelist
-    DeactivateWhitelist {
-
-    },
+    DeactivateWhitelist {},
     /// set the public and/or private metadata.  This can be called by either the token owner or
     /// a valid minter if they have been given this power by the appropriate config values
     SetMetadata {
@@ -453,7 +446,7 @@ pub struct Send {
 #[serde(rename_all = "snake_case")]
 pub enum HandleAnswer {
     ToPub {
-        status: ResponseStatus, 
+        status: ResponseStatus,
     },
     /// MintNft will also display the minted token's ID in the log attributes under the
     /// key `minted` in case minting was done as a callback message
@@ -682,6 +675,18 @@ pub enum QueryMsg {
         /// false, expired Approvals will be filtered out of the response
         include_expired: Option<bool>,
     },
+    /// displays all the information about multiple tokens that the viewer has permission to
+    /// see.  This may include the owner, the public metadata, the private metadata, royalty
+    /// information, mint run information, whether the token is unwrapped,
+    /// and the token and inventory approvals
+    BatchNftDossier {
+        token_ids: Vec<String>,
+        /// optional address and key requesting to view the token information
+        viewer: Option<ViewerInfo>,
+        /// optionally include expired Approvals in the response list.  If ommitted or
+        /// false, expired Approvals will be filtered out of the response
+        include_expired: Option<bool>,
+    },
     /// list all the approvals in place for a specified token if given the owner's viewing
     /// key
     TokenApprovals {
@@ -808,6 +813,26 @@ pub struct Cw721OwnerOfResponse {
     pub approvals: Vec<Cw721Approval>,
 }
 
+/// the token id and nft dossier info of a single token response in a batch query
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct BatchNftDossierElement {
+    pub token_id: String,
+    pub owner: Option<HumanAddr>,
+    pub public_metadata: Option<Metadata>,
+    pub private_metadata: Option<Metadata>,
+    pub display_private_metadata_error: Option<String>,
+    pub royalty_info: Option<DisplayRoyaltyInfo>,
+    pub mint_run_info: Option<MintRunInfo>,
+    /// true if this token is unwrapped (returns true if the contract does not have selaed metadata enabled)
+    pub unwrapped: bool,
+    pub owner_is_public: bool,
+    pub public_ownership_expiration: Option<Expiration>,
+    pub private_metadata_is_public: bool,
+    pub private_metadata_is_public_expiration: Option<Expiration>,
+    pub token_approvals: Option<Vec<Snip721Approval>>,
+    pub inventory_approvals: Option<Vec<Snip721Approval>>,
+}
+
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
@@ -870,12 +895,16 @@ pub enum QueryAnswer {
         display_private_metadata_error: Option<String>,
         royalty_info: Option<DisplayRoyaltyInfo>,
         mint_run_info: Option<MintRunInfo>,
+        unwrapped: bool,
         owner_is_public: bool,
         public_ownership_expiration: Option<Expiration>,
         private_metadata_is_public: bool,
         private_metadata_is_public_expiration: Option<Expiration>,
         token_approvals: Option<Vec<Snip721Approval>>,
         inventory_approvals: Option<Vec<Snip721Approval>>,
+    },
+    BatchNftDossier {
+        nft_dossiers: Vec<BatchNftDossierElement>,
     },
     ApprovedForAll {
         operators: Vec<Cw721Approval>,
@@ -948,6 +977,16 @@ pub enum QueryWithPermit {
     /// information, mint run information, and the token and inventory approvals
     NftDossier {
         token_id: String,
+        /// optionally include expired Approvals in the response list.  If ommitted or
+        /// false, expired Approvals will be filtered out of the response
+        include_expired: Option<bool>,
+    },
+    /// displays all the information about multiple tokens that the viewer has permission to
+    /// see.  This may include the owner, the public metadata, the private metadata, royalty
+    /// information, mint run information, whether the token is unwrapped,
+    /// and the token and inventory approvals
+    BatchNftDossier {
+        token_ids: Vec<String>,
         /// optionally include expired Approvals in the response list.  If ommitted or
         /// false, expired Approvals will be filtered out of the response
         include_expired: Option<bool>,
