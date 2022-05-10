@@ -270,6 +270,47 @@
       }
     },
     {
+      "description": "displays all the information about multiple tokens that the viewer has permission to see.  This may include the owner, the public metadata, the private metadata, royalty information, mint run information, whether the token is unwrapped, and the token and inventory approvals",
+      "type": "object",
+      "required": [
+        "batch_nft_dossier"
+      ],
+      "properties": {
+        "batch_nft_dossier": {
+          "type": "object",
+          "required": [
+            "token_ids"
+          ],
+          "properties": {
+            "include_expired": {
+              "description": "optionally include expired Approvals in the response list.  If ommitted or false, expired Approvals will be filtered out of the response",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "token_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "viewer": {
+              "description": "optional address and key requesting to view the token information",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ViewerInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
       "description": "list all the approvals in place for a specified token if given the owner's viewing key",
       "type": "object",
       "required": [
@@ -789,6 +830,36 @@
                 },
                 "token_id": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "displays all the information about multiple tokens that the viewer has permission to see.  This may include the owner, the public metadata, the private metadata, royalty information, mint run information, whether the token is unwrapped, and the token and inventory approvals",
+          "type": "object",
+          "required": [
+            "batch_nft_dossier"
+          ],
+          "properties": {
+            "batch_nft_dossier": {
+              "type": "object",
+              "required": [
+                "token_ids"
+              ],
+              "properties": {
+                "include_expired": {
+                  "description": "optionally include expired Approvals in the response list.  If ommitted or false, expired Approvals will be filtered out of the response",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "token_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               }
             }

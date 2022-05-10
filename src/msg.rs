@@ -675,6 +675,18 @@ pub enum QueryMsg {
         /// false, expired Approvals will be filtered out of the response
         include_expired: Option<bool>,
     },
+    /// displays all the information about multiple tokens that the viewer has permission to
+    /// see.  This may include the owner, the public metadata, the private metadata, royalty
+    /// information, mint run information, whether the token is unwrapped,
+    /// and the token and inventory approvals
+    BatchNftDossier {
+        token_ids: Vec<String>,
+        /// optional address and key requesting to view the token information
+        viewer: Option<ViewerInfo>,
+        /// optionally include expired Approvals in the response list.  If ommitted or
+        /// false, expired Approvals will be filtered out of the response
+        include_expired: Option<bool>,
+    },
     /// list all the approvals in place for a specified token if given the owner's viewing
     /// key
     TokenApprovals {
@@ -801,6 +813,26 @@ pub struct Cw721OwnerOfResponse {
     pub approvals: Vec<Cw721Approval>,
 }
 
+/// the token id and nft dossier info of a single token response in a batch query
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct BatchNftDossierElement {
+    pub token_id: String,
+    pub owner: Option<HumanAddr>,
+    pub public_metadata: Option<Metadata>,
+    pub private_metadata: Option<Metadata>,
+    pub display_private_metadata_error: Option<String>,
+    pub royalty_info: Option<DisplayRoyaltyInfo>,
+    pub mint_run_info: Option<MintRunInfo>,
+    /// true if this token is unwrapped (returns true if the contract does not have selaed metadata enabled)
+    pub unwrapped: bool,
+    pub owner_is_public: bool,
+    pub public_ownership_expiration: Option<Expiration>,
+    pub private_metadata_is_public: bool,
+    pub private_metadata_is_public_expiration: Option<Expiration>,
+    pub token_approvals: Option<Vec<Snip721Approval>>,
+    pub inventory_approvals: Option<Vec<Snip721Approval>>,
+}
+
 #[derive(Serialize, Deserialize, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryAnswer {
@@ -863,12 +895,16 @@ pub enum QueryAnswer {
         display_private_metadata_error: Option<String>,
         royalty_info: Option<DisplayRoyaltyInfo>,
         mint_run_info: Option<MintRunInfo>,
+        unwrapped: bool,
         owner_is_public: bool,
         public_ownership_expiration: Option<Expiration>,
         private_metadata_is_public: bool,
         private_metadata_is_public_expiration: Option<Expiration>,
         token_approvals: Option<Vec<Snip721Approval>>,
         inventory_approvals: Option<Vec<Snip721Approval>>,
+    },
+    BatchNftDossier {
+        nft_dossiers: Vec<BatchNftDossierElement>,
     },
     ApprovedForAll {
         operators: Vec<Cw721Approval>,
@@ -941,6 +977,16 @@ pub enum QueryWithPermit {
     /// information, mint run information, and the token and inventory approvals
     NftDossier {
         token_id: String,
+        /// optionally include expired Approvals in the response list.  If ommitted or
+        /// false, expired Approvals will be filtered out of the response
+        include_expired: Option<bool>,
+    },
+    /// displays all the information about multiple tokens that the viewer has permission to
+    /// see.  This may include the owner, the public metadata, the private metadata, royalty
+    /// information, mint run information, whether the token is unwrapped,
+    /// and the token and inventory approvals
+    BatchNftDossier {
+        token_ids: Vec<String>,
         /// optionally include expired Approvals in the response list.  If ommitted or
         /// false, expired Approvals will be filtered out of the response
         include_expired: Option<bool>,
