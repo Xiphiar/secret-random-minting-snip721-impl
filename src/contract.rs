@@ -16,7 +16,7 @@ use secret_toolkit::{
 
 use crate::expiration::Expiration;
 use crate::inventory::{Inventory, InventoryIter};
-use crate::mint_run::{SerialNumber, StoredMintRunInfo};
+use crate::mint_run::StoredMintRunInfo;
 use crate::msg::{
     AccessLevel, BatchNftDossierElement, Burn, ContractStatus, Cw721Approval, Cw721OwnerOfResponse,
     HandleAnswer, HandleMsg, HandleReceiveMsg, InitMsg, Mint, QueryAnswer, QueryMsg,
@@ -31,8 +31,8 @@ use crate::state::{
     store_transfer, AuthList, Config, Permission, PermissionType, PreLoad, ReceiveRegistration,
     BLOCK_KEY, CONFIG_KEY, COUNT_KEY, CREATOR_KEY, DEFAULT_MINT_FUNDS_DISTRIBUTION_KEY,
     DEFAULT_ROYALTY_KEY, MINTERS_KEY, MY_ADDRESS_KEY, PREFIX_ALL_PERMISSIONS, PREFIX_AUTHLIST,
-    PREFIX_INFOS, PREFIX_MAP_TO_ID, PREFIX_MAP_TO_INDEX, PREFIX_MINT_RUN, PREFIX_MINT_RUN_NUM,
-    PREFIX_OWNER_PRIV, PREFIX_PRIV_META, PREFIX_PUB_META, PREFIX_RECEIVERS, PREFIX_REVOKED_PERMITS,
+    PREFIX_INFOS, PREFIX_MAP_TO_ID, PREFIX_MAP_TO_INDEX, PREFIX_MINT_RUN, PREFIX_OWNER_PRIV,
+    PREFIX_PRIV_META, PREFIX_PUB_META, PREFIX_RECEIVERS, PREFIX_REVOKED_PERMITS,
     PREFIX_ROYALTY_INFO, PREFIX_VIEW_KEY, PREFIX_WHITELIST, PRNG_SEED_KEY, SNIP20_ADDRESS_KEY,
     SNIP20_HASH_KEY, WHITELIST_ACTIVE_KEY, WHITELIST_COUNT_KEY,
 };
@@ -53,7 +53,7 @@ use rand_chacha::ChaChaRng;
 use secret_toolkit::snip20::handle::{register_receive_msg, transfer_msg};
 
 /// Mint cost
-pub const MINT_COST: u128 = 0; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
+pub const MINT_COST: u128 = 10000000; //WRITE IN LOWEST DENOMINATION OF YOUR PREFERRED SNIP
 
 ////////////////////////////////////// Init ///////////////////////////////////////
 /// Returns InitResult
@@ -141,25 +141,26 @@ pub fn init<S: Storage, A: Api, Q: Querier>(
     }
 
     // perform the post init callback if needed
-    let messages: Vec<CosmosMsg> = if let Some(callback) = msg.post_init_callback {
-        let execute = WasmMsg::Execute {
-            msg: callback.msg,
-            contract_addr: callback.contract_address,
-            callback_code_hash: callback.code_hash,
-            send: callback.send,
-        };
-        vec![execute.into()]
-    } else {
-        Vec::new()
-    };
+    let mut messages = vec![register_receive_msg(
+        env.contract_code_hash,
+        None,
+        BLOCK_SIZE,
+        snip20_hash,
+        snip20_address,
+    )?];
+    if let Some(callback) = msg.post_init_callback {
+        messages.push(
+            WasmMsg::Execute {
+                msg: callback.msg,
+                contract_addr: callback.contract_address,
+                callback_code_hash: callback.code_hash,
+                send: callback.send,
+            }
+            .into(),
+        );
+    }
     Ok(InitResponse {
-        messages: vec![register_receive_msg(
-            env.contract_code_hash,
-            None,
-            BLOCK_SIZE,
-            snip20_hash,
-            snip20_address,
-        )?],
+        messages,
         log: vec![],
     })
 }
@@ -671,6 +672,7 @@ pub fn mint<S: Storage, A: Api, Q: Querier>(
             recipient,
             amount,
             padding.clone(),
+            None,
             block_size.clone(),
             callback_code_hash.clone(),
             snip20_address.clone(),
@@ -1965,13 +1967,14 @@ pub fn permit_queries<S: Storage, A: Api, Q: Querier>(
     let my_address = deps
         .api
         .human_address(&load::<CanonicalAddr, _>(&deps.storage, MY_ADDRESS_KEY)?)?;
-    let querier = deps.api.canonical_address(&validate(
+    let querier = deps.api.canonical_address(&HumanAddr(validate(
         deps,
         PREFIX_REVOKED_PERMITS,
         &permit,
         my_address,
-    )?)?;
-    if !permit.check_permission(&secret_toolkit::permit::Permission::Owner) {
+        None,
+    )?))?;
+    if !permit.check_permission(&secret_toolkit::permit::TokenPermissions::Owner) {
         return Err(StdError::generic_err(format!(
             "Owner permission is required for SNIP-721 queries, got permissions {:?}",
             permit.params.permissions
