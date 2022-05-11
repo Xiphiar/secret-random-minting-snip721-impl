@@ -356,7 +356,8 @@
           "type": "object",
           "required": [
             "owner_is_public",
-            "private_metadata_is_public"
+            "private_metadata_is_public",
+            "unwrapped"
           ],
           "properties": {
             "display_private_metadata_error": {
@@ -457,6 +458,31 @@
               ],
               "items": {
                 "$ref": "#/definitions/Snip721Approval"
+              }
+            },
+            "unwrapped": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "batch_nft_dossier"
+      ],
+      "properties": {
+        "batch_nft_dossier": {
+          "type": "object",
+          "required": [
+            "nft_dossiers"
+          ],
+          "properties": {
+            "nft_dossiers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchNftDossierElement"
               }
             }
           }
@@ -651,6 +677,125 @@
         }
       }
     },
+    "BatchNftDossierElement": {
+      "description": "the token id and nft dossier info of a single token response in a batch query",
+      "type": "object",
+      "required": [
+        "owner_is_public",
+        "private_metadata_is_public",
+        "token_id",
+        "unwrapped"
+      ],
+      "properties": {
+        "display_private_metadata_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inventory_approvals": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Snip721Approval"
+          }
+        },
+        "mint_run_info": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/MintRunInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HumanAddr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owner_is_public": {
+          "type": "boolean"
+        },
+        "private_metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Metadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "private_metadata_is_public": {
+          "type": "boolean"
+        },
+        "private_metadata_is_public_expiration": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Expiration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "public_metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Metadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "public_ownership_expiration": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Expiration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "royalty_info": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DisplayRoyaltyInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "token_approvals": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Snip721Approval"
+          }
+        },
+        "token_id": {
+          "type": "string"
+        },
+        "unwrapped": {
+          "description": "true if this token is unwrapped (returns true if the contract does not have selaed metadata enabled)",
+          "type": "boolean"
+        }
+      }
+    },
     "Cw721Approval": {
       "description": "CW721 Approval",
       "type": "object",
@@ -823,16 +968,9 @@
         "description": {
           "description": "item description",
           "type": [
-            "array",
+            "string",
             "null"
-          ],
-          "items": {
-            "type": "integer",
-            "format": "uint8",
-            "minimum": 0.0
-          },
-          "maxItems": 32,
-          "minItems": 32
+          ]
         },
         "external_url": {
           "description": "url to allow users to view the item on your site",
